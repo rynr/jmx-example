@@ -1,13 +1,15 @@
 package de.friendscout24.monitor;
 
 import java.lang.management.ManagementFactory;
+import java.text.MessageFormat;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.management.AttributeChangeNotification;
 import javax.management.InstanceAlreadyExistsException;
-import javax.management.MBeanNotificationInfo;
 import javax.management.MBeanRegistrationException;
 import javax.management.MalformedObjectNameException;
 import javax.management.NotCompliantMBeanException;
@@ -17,66 +19,64 @@ import javax.management.ObjectName;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Monitor extends NotificationBroadcasterSupport implements MonitorMBean {
+public class Monitor extends NotificationBroadcasterSupport implements
+		MonitorMBean {
 
-	private static final String MBEAN_NAME = "de.friendscout24.monitor:type=Monitor";
+	private static final String MBEAN_NAME = "de.friendscout24.{0}:type=Monitor";
+	private static final Logger LOG = LoggerFactory.getLogger(Monitor.class);
 	boolean active;
 	Map<String, AtomicInteger> counter;
-	private Logger logger;
 	private int sequenceNumber;
 
-	private Monitor() {
-		logger = LoggerFactory.getLogger(getClass());
+	public Monitor(String name) {
 		counter = new HashMap<String, AtomicInteger>();
 		active = true;
 		try {
-			registerMBean();
-		} catch (InstanceAlreadyExistsException | MBeanRegistrationException | NotCompliantMBeanException
-				| MalformedObjectNameException e) {
-			logger.error("Could not register Monitor-MBean", e);
+			registerMBean(name);
+		} catch (InstanceAlreadyExistsException | MBeanRegistrationException
+				| NotCompliantMBeanException | MalformedObjectNameException e) {
+			LOG.error("Could not register Monitor-MBean", e);
 			active = false;
 		}
 	}
 
-	private void registerMBean() throws InstanceAlreadyExistsException, MBeanRegistrationException,
-			NotCompliantMBeanException, MalformedObjectNameException {
-		ManagementFactory.getPlatformMBeanServer().registerMBean(this, new ObjectName(MBEAN_NAME));
-	}
-
-	private static class MonitorHolder {
-		public static Monitor INSTANCE = new Monitor();
-	}
-
-	public static Monitor getInstance() {
-		return MonitorHolder.INSTANCE;
+	private void registerMBean(String name) throws InstanceAlreadyExistsException,
+			MBeanRegistrationException, NotCompliantMBeanException,
+			MalformedObjectNameException {
+		ManagementFactory.getPlatformMBeanServer().registerMBean(this,
+				new ObjectName(MessageFormat.format(MBEAN_NAME, name)));
 	}
 
 	public void increaseCounter(String name) {
 		if (active) {
 			if (counter.containsKey(name)) {
-				logger.debug("Increasing counter " + name);
+				LOG.debug("Increasing counter " + name);
 				sendNotification(name, counter.get(name).incrementAndGet());
 			} else {
-				logger.debug("Increasing (new) counter " + name);
+				LOG.debug("Increasing (new) counter " + name);
 				counter.put(name, new AtomicInteger(1));
 			}
 		} else {
-			logger.info("Did not increment counter " + name + " (inactive)");
+			LOG.info("Did not increment counter " + name + " (inactive)");
 		}
 	}
 
 	private void sendNotification(String name, int new_counter) {
-		sendNotification(new AttributeChangeNotification(this, sequenceNumber++, System.currentTimeMillis(),
-				"Counter \"" + name + "\" incremented", "Counter", "int", new_counter - 1, new_counter));
+		sendNotification(new AttributeChangeNotification(this,
+				sequenceNumber++, System.currentTimeMillis(), "Counter \""
+						+ name + "\" incremented", "Counter", "int",
+				new_counter - 1, new_counter));
 	}
 
 	@Override
-	public String[] getCounters() {
+	public Map<String, Integer> getCounters() {
+		TreeMap<String, Integer> result = new TreeMap<String, Integer>();
 		if (active) {
-			return counter.keySet().toArray(new String[0]);
-		} else {
-			return null;
+			for (Entry<String, AtomicInteger> entry : counter.entrySet()) {
+				result.put(entry.getKey(), new Integer(entry.getValue().get()));
+			}
 		}
+		return result;
 	}
 
 	@Override
@@ -89,11 +89,11 @@ public class Monitor extends NotificationBroadcasterSupport implements MonitorMB
 	}
 
 	@Override
-	public MBeanNotificationInfo[] getNotificationInfo() {
-		String[] types = new String[] { AttributeChangeNotification.ATTRIBUTE_CHANGE };
-		String name = AttributeChangeNotification.class.getName();
-		String description = "An attribute of this MBean has changed";
-		MBeanNotificationInfo info = new MBeanNotificationInfo(types, name, description);
-		return new MBeanNotificationInfo[] { info };
+	public String[] getCounterNames() {
+		if (active) {
+			return counter.keySet().toArray(new String[0]);
+		} else {
+			return null;
+		}
 	}
 }
